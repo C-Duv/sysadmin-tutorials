@@ -1,0 +1,227 @@
+h1. Guide d'installation de DAViCal
+
+"DAViCal":http://www.davical.org est un serveur "CalDAV":http://fr.wikipedia.org/wiki/CalDAV open-source en PHP.
+
+h2. Références pour ce guide
+
+* "DAViCal - Installation":http://www.davical.org/installation.php
+* "Configuration/Authentication Settings/LDAP Examples":http://wiki.davical.org/w/Configuration/LDAP
+* "Installation et configuration de PostgreSQL - 5.2 L'encodage UTF8 ne correspond pas à la locale":http://www.deimos.fr/blocnotesinfo/index.php?title=Installation_et_configuration_de_PostgreSQL#L.27encodage_UTF8_ne_correspond_pas_.C3.A0_la_locale
+
+h2. Pré-requis
+
+* Serveur Apache 2 (d'autres serveur Web sont possibles)
+* Système avec des locale en UTF-8, notamment LC_CTYPE
+
+Pour tester si les locales du système sont bonnes :
+<pre>
+locale
+</pre>
+Si les valeur affichée ne contiennent pas _UTF-8_ (eg. @LC_CTYPE="fr_FR"@), il faut faire comme suit :
+<pre>
+dpkg-reconfigure locales
+</pre>
+Dans "Jeux de paramètres régionaux à créer :", choisir au moins (mais exclusivement) des versions UTF-8.
+Dans "Jeu de paramètres régionaux actif par défaut :", choisir "fr_FR.UTF-8"
+
+h2. Variables/choix utilisés dans cette procédure
+
+DAViCal sera couplé à un serveur LDAP.
+
+|_=. Variable|_=. Description|_=. Valeur exemple|
+|@{{CALDAV_HOST}}@|FQDN du serveur CalDAV|calendars.example.com|
+|@{{APP_LDAP_HOST}}@|Hôte du serveur LDAP à utiliser|ldap.example.com|
+|@{{APP_LDAP_BINDDN}}@|DN LDAP à utiliser pour l'application|cn=calendars.example.com,ou=Applications,dc=example,dc=com|
+|@{{APP_LDAP_PWD}}@|Mot de passe de @{{APP_LDAP_BINDDN}}@|*****|
+|@{{APP_LDAP_USERSDN}}@|DN LDAP de base où rechercher les utilisateurs|dc=example,dc=com|
+|@{{APP_LDAP_USERSFILTER}}@|Filtre LDAP des utilisateurs|objectClass=inetOrgPerson|
+|@{{APP_LDAP_GROUPSDN}}@|DN LDAP de base où rechercher les groupes|ou=Groupes,dc=example,dc=com|
+|@{{APP_LDAP_GROUPSFILTER}}@|Filtre LDAP des groupes|objectClass=posixGroup|
+
+h2. Installation
+
+# Si package @davical@ non présent dans les dépôt officiels (id. avant Debian Squeeze) :
+## Rajouter les lignes suivantes dans le fichier "/etc/apt/sources.list"
+<pre>
+# DAViCal :
+deb http://debian.mcmillan.net.nz/debian lenny awm
+</pre>
+## Ajouter la clé
+<pre>
+apt-key advanced --keyserver pgp.net.nz --recv-keys F6E0FA5CF0307507BB23A512EAFCFEBF8FEB8EBF
+</pre>
+## Mettre à jour la liste des dépôts
+<pre>
+aptitude update
+</pre>
+# Installer DAViCal
+<pre>
+aptitude install davical
+</pre>
+
+h2. Configuration PostgreSQL
+
+Création utilisateur, base et tables PostgreSQL.
+
+# Déterminer l'emplacement du fichier de configuration de PostgreSQL : "pg_hba.conf"
+<pre>
+updatedb
+locate pg_hba.conf
+</pre>
+Devrait afficher des emplacements comme par exemple...
+#* /etc/postgresql/9.1/main/pg_hba.conf
+#* /usr/share/postgresql/9.1/pg_hba.conf.sample
+Un fichier contenu dans "/etc/postgresql/" est un bon candidat. Ici "/etc/postgresql/9.1/main/pg_hba.conf" est le bon fichier
+# Comptes utilisateur
+Modifier le fichier "pg_hba.conf" pour y rajouter les lignes suivantes entre les lignes "# Put your actual configuration here" et "# DO NOT DISABLE_!" :
+<pre>
+# Droits pour DAViCal :
+local   davical    davical_app   trust
+local   davical    davical_dba   trust
+</pre>
+# Redémarrer le serveur pour qu'il prenne en compte les modifications
+<pre>
+service postgresql restart
+</pre>
+# Création de la base de données
+<pre>
+su postgres -c /usr/share/davical/dba/create-database.sh
+</pre>
+Bien noter le mot de passe du compte utilisateur "admin" qu'affiche le script (_The password for the 'admin' user has been set to 'xxxxx'_)
+
+h2. Configuration Apache
+
+Création @VirtualHost@ Apache.
+
+# Créer le fichier "/etc/apache2/sites-available/{{CALDAV_HOST}}" avec le contenu suivant :
+<pre>
+<VirtualHost *:80>
+        ServerName {{CALDAV_HOST}}
+        DocumentRoot /usr/share/davical/htdocs
+
+        DirectoryIndex index.php index.html
+        Alias /images/ /usr/share/davical/htdocs/images/
+
+        <Directory /usr/share/davical/htdocs/>
+                AllowOverride None
+                Order allow,deny
+                Allow from all
+        </Directory>
+
+        AcceptPathInfo On
+        php_value include_path /usr/share/awl/inc
+        php_value magic_quotes_gpc 0
+        php_value register_globals 0
+        php_value error_reporting "E_ALL & ~E_NOTICE"
+        php_value default_charset "utf-8"
+
+        ErrorLog ${APACHE_LOG_DIR}/{{CALDAV_HOST}}/error.log
+        CustomLog ${APACHE_LOG_DIR}/{{CALDAV_HOST}}/access.log combined
+
+</VirtualHost>
+</pre>
+# Activer le @VirtualHost@ et recharger Apache
+<pre>
+a2ensite {{CALDAV_HOST}}
+service apache2 reload
+</pre>
+
+h2. Configuration DAViCal
+
+# Créer le fichier de configuration "/etc/davical/{{CALDAV_HOST}}-conf.php"
+<pre>
+touch /etc/davical/{{CALDAV_HOST}}-conf.php
+</pre>
+# Permissions sur le fichier
+<pre>
+chown www-data /etc/davical/{{CALDAV_HOST}}-conf.php
+chmod u=r /etc/davical/{{CALDAV_HOST}}-conf.php
+chmod o= /etc/davical/{{CALDAV_HOST}}-conf.php
+</pre>
+# Remplir le fichier "/etc/davical/{{CALDAV_HOST}}-conf.php" avec le contenu suivant :
+<pre>
+<code class="php">
+<?php
+
+$c->domain_name = '{{CALDAV_HOST}}';
+$c->sysabbr     = 'DAViCal';
+$c->admin_email = 'admin@example.com';
+$c->system_name = 'Example Inc. DAViCal Server';
+
+$c->enable_row_linking = true;
+
+$c->pg_connect[] = 'dbname=davical port=5432 user=davical_app';
+
+
+// Locale :
+$c->default_locale = 'fr_FR';
+$c->local_tzid = 'Europe/Paris';
+
+
+/*** LDAP ***/
+$c->authenticate_hook['call'] = 'LDAP_check';
+$c->authenticate_hook['config'] = array(
+    'host'                => '{{APP_LDAP_HOST}}', //host name of your LDAP Server
+    'port'                => '389', //port
+    'bindDN'              => '{{APP_LDAP_BINDDN}}', //DN to bind request to this server (if required)
+    'passDN'              => '{{APP_LDAP_PWD}}', //Password of request bind
+    'baseDNUsers'         => '{{APP_LDAP_USERSDN}}', //where to look for valid user
+    'filterUsers'         => '{{APP_LDAP_USERSFILTER}}', //filter which must validate a user according to RFC4515, i.e. surrounded by brackets
+    'baseDNGroups'        => '{{APP_LDAP_GROUPSDN}}', //where to look for groups
+    'filterGroups'        => '{{APP_LDAP_GROUPSFILTER}}', //filter with same rules as filterUsers, could also be groupOfUniqueNames
+    'protocolVersion'     => 3, // important for simple auth (no sasl)
+    //'startTLS'            => true, // securing your LDAP connection
+    'mapping_field'       => array(
+        'username' => 'uid',
+        'updated'  => 'modifyTimestamp',
+        'fullname' => 'cn', // "Common Name"
+        //'user_no'  => 'uidNumber', // Set DAViCAL user no to match Unix uid from LDAP
+        'email'    => 'mail'
+    ), //used to create the user based on his LDAP properties
+    'group_mapping_field' => array(
+        'username' => 'cn',
+        'updated'  => 'modifyTimestamp',
+        'fullname' => 'cn',
+        'members'  => 'memberUid'
+    ), // used to create the group based on the ldap properties
+    'format_updated'      => array(
+        'Y' => array(0,4),
+        'm' => array(4,2),
+        'd' => array(6,2),
+        'H' => array(8,2),
+        'M' => array(10,2),
+        'S' => array(12,2)
+    ), // map LDAP "modifyTimestamp" field to SQL "updated" field
+    'scope'               => 'subtree', // Search scope to use, defaults to subtree ( applies to BOTH user and group mappings )
+                          // Allowed values: base, onelevel, subtree.
+);
+include('drivers_ldap.php');
+/*** /LDAP ***/
+</code>
+</pre>
+Note : S'assurer que @{{APP_LDAP_BINDDN}}@ a le droit de lire les attributs LDAP @cn@, @mail@, @memberUid@, @objectClass@, @uid@ et @modifyTimestamp@
+
+h3. Configurations additionnelles (facultatives)
+
+* Si besoin d'import de fichier iCal/ICS via l'interface il faut explicitement l'activer :
+<pre>
+<code class="php">
+/*** Import .ics ***/
+/* Autoriser l'import :
+$c->readonly_webdav_collections = false;
+$c->writable_dav_collections = true;
+//*/
+//* Interdire l'import (valeurs par défaut) :
+$c->readonly_webdav_collections = true;
+$c->writable_dav_collections = false;
+//*/
+/*** /Import .ics ***/
+</code>
+</pre>
+
+h2. Utilisation
+
+h3. Configuration sur les logiciels client
+
+Pour ajouter le calendrier dans le logiciel de calendrier de l'utilisateur @{{LOGIN_UTILISATEUR}}@, ajouter un calendrier réseau type "CalDAV" ayant pour adresse :
+http://@{{CALDAV_HOST}}@/caldav.php/@{{LOGIN_UTILISATEUR}}@/calendar/

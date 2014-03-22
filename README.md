@@ -7,3 +7,4 @@ Content
 -------
 
 * AgenDAV: Installation
+* DAViCal: Installation and database backup/restore
