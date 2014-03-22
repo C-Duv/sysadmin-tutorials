@@ -1,0 +1,213 @@
+h1. Guide d'installation d'AgenDAV
+
+"AgenDAV":http://agendav.org est un client web "CalDAV":http://fr.wikipedia.org/wiki/CalDAV open-source en PHP.
+Il permet de consulter des agendas CalDAV via un navigateur web.
+
+h2. Références pour ce guide
+
+* "Documentation de AgenDAV 1.2.6.2":http://agendav.org/doc/1.2.6.2/index.html
+
+h2. Pré-requis
+
+* Un serveur CalDAV ("DAViCal":http://www.davical.org recommandé)
+* Serveur Apache 2 (d'autres serveur Web sont possibles)
+* PHP >= 5.3 (ou plus)
+* Extensions PHP
+** "@mbstring@: _Multibyte String_":http://www.php.net/manual/book.mbstring.php
+** "@ctype@: _Character type checking_":http://www.php.net/manual/book.ctype.php
+** "@curl@: _cURL_":http://www.php.net/manual/book.curl.php
+* Serveur MySQL > 5.1 (PostgreSQL >= 8.1 est également possible : voir la documentation pour plus de détail)
+
+h2. Variables/choix utilisés dans cette procédure
+
+AgenDAV sera couplé à un serveur DAViCal et utilisera MySQL. 
+
+|_=. Variable|_=. Description|_=. Valeur exemple|
+|@{{CALDAV_HOST}}@|FQDN du serveur CalDAV à utiliser|cal.example.com|
+|@{{AGENDAV_HOST}}@|FQDN de l'application AgenDAV|agenda.example.com|
+|@{{APP_DIRPATH}}@|Emplacement de l'application AgenDAV|/var/www/@{{AGENDAV_HOST}}@|
+|@{{APP_LOGSDIRPATH}}@|Emplacement des fichiers de logs de l'application AgenDAV|/var/log/agendav/|
+|@{{APP_DB_HOST}}@|Hôte du serveur de base de données|localhost|
+|@{{APP_DB_DBNAME}}@|Nom de la base de données de l'application|agendav|
+|@{{APP_DB_USER}}@|Utilisateur SQL pour l'application|agendav|
+|@{{APP_DB_PWD}}@|Mot de passe de @{{APP_DB_USER}}@|agendav|
+
+h2. Installation
+
+# Créer les dossiers pour l'application
+<pre>
+mkdir {{APP_DIRPATH}}
+mkdir /var/log/apache2/{{AGENDAV_HOST}}
+chown root:adm /var/log/apache2/{{AGENDAV_HOST}}
+chmod 750 /var/log/apache2/{{AGENDAV_HOST}}
+mkdir /var/log/agendav
+chown www-data /var/log/agendav
+chmod 750 /var/log/agendav
+</pre>
+# Récupérer l'archive
+<pre>
+wget -O agendav-1.2.6.2.tar.gz  http://github.com/adobo/agendav/tarball/1.2.6.2
+</pre>
+# Décompresser, déplacer et permissions
+<pre>
+tar xzf agendav-1.2.6.2.tar.gz
+mv adobo-agendav-84f869e/* adobo-agendav-84f869e/.[^.]* {{APP_DIRPATH}}
+chown -R www-data:www-data {{APP_DIRPATH}}
+find {{APP_DIRPATH}} -type f -exec chmod u=r,g=r,o= {} \; 
+find {{APP_DIRPATH}} -type d -exec chmod u=rx,g=rx,o= {} \;
+chmod u+x {{APP_DIRPATH}}/bin/agendavcli
+chmod u+x {{APP_DIRPATH}}/bin/prepare-static.php
+</pre>
+
+h2. Configuration MySQL
+
+Création utilisateur, base et tables MySQL.
+
+<pre>
+<code class="sql">
+GRANT ALL PRIVILEGES ON {{APP_DB_DBNAME}}.* TO {{APP_DB_USER}}@{{APP_DB_HOST}}IDENTIFIED BY '{{APP_DB_PWD}}'
+CREATE DATABASE {{APP_DB_DBNAME}} CHARACTER SET utf8 COLLATE utf8_general_ci;
+FLUSH PRIVILEGES;
+</code>
+</pre><pre>
+mysql --default-character-set=utf8 -h {{APP_DB_HOST}} -u {{APP_DB_USER}} -p {{APP_DB_DBNAME}} < {{APP_DIRPATH}}/sql/mysql.schema.sql
+</pre>
+
+h2. Configuration Apache
+
+# Création @VirtualHost@ Apache :
+<pre>
+cat >> /etc/apache2/sites-available/{{AGENDAV_HOST}} <<'EOT'
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+
+    DocumentRoot {{APP_DIRPATH}}
+    ServerName {{AGENDAV_HOST}}
+
+    <Directory {{APP_DIRPATH}}/>
+        AllowOverride All
+    </Directory>
+    
+    php_flag magic_quotes_gpc off
+    php_flag magic_quotes_runtime off
+
+    ErrorLog ${APACHE_LOG_DIR}/{{AGENDAV_HOST}}/error.log
+    CustomLog ${APACHE_LOG_DIR}/{{AGENDAV_HOST}}/access.log combined
+ </VirtualHost>
+</pre>
+# Activer le @VirtualHost@ et recharger Apache
+<pre>
+a2ensite {{AGENDAV_HOST}}
+service apache2 reload
+</pre>
+
+h2. Configuration AgenDAV
+
+# Créer les fichiers de configuration à partir des modèles
+<pre>
+cp -a {{APP_DIRPATH}}/web/config/config.php.template {{APP_DIRPATH}}/web/config/config.php
+cp -a {{APP_DIRPATH}}/web/config/database.php.template {{APP_DIRPATH}}/web/config/database.php
+cp -a {{APP_DIRPATH}}/web/config/caldav.php.template {{APP_DIRPATH}}/web/config/caldav.php
+</pre>
+# Modifier le fichier "{{APP_DIRPATH}}/web/config/config.php" comme suit :
+<pre>
+<code class="php">
+$config['base_url'] = 'http://{{AGENDAV_HOST}}/';
+$config['log_path'] = '{{APP_LOGSDIRPATH}}';
+$config['encryption_key'] = '******************';
+$config['cookie_domain']    = "{{AGENDAV_HOST}}";
+$config['site_title'] = 'Agendas ExampleCompany';
+$config['footer'] = 'Example Inc';
+$config['default_language'] = 'fr_FR';
+$config['default_first_day'] = 0;
+$config['default_timezone'] = 'Europe/Paris';
+</code>
+</pre>
+# Modifier le fichier "{{APP_DIRPATH}}/web/config/database.php" comme suit :
+<pre>
+<code class="php">
+$db['default']['hostname'] = '{{APP_DB_HOST}}';
+$db['default']['username'] = '{{APP_DB_USER}}';
+$db['default']['password'] = '{{APP_DB_PWD}}';
+$db['default']['database'] = '{{APP_DB_DBNAME}}';
+</code>
+</pre>
+# Modifier le fichier "{{APP_DIRPATH}}/web/config/caldav.php" comme suit :
+<pre>
+<code class="php">
+$config['caldav_http_auth_method'] = CURLAUTH_BASIC;
+$config['caldav_principal_url'] = 'http://{{CALDAV_HOST}}/caldav.php/%u/';
+$config['caldav_calendar_url'] = 'http://{{CALDAV_HOST}}/caldav.php/%s/';
+$config['public_caldav_url'] = 'http://{{CALDAV_HOST}}/caldav.php/%s/';
+</code>
+</pre>
+# Mise à jour base de données à la dernière version (ne peut être fait qu'une fois "{{APP_DIRPATH}}/web/config/caldav.php" configuré
+<pre>
+{{APP_DIRPATH}}/bin/agendavcli dbupdate
+</pre>
+
+h2. Afficher l'interface AgenDAV à l'adresse de DAViCal
+
+La modification suivante permet d'être redirigé vers l'interface d'AgenDAV (http://@{{AGENDAV_HOST}}@) lorsqu'on tente d'accéder à l'interface de DAViCal (http://@{{CALDAV_HOST}}@).
+
+Créer le fichier @.htaccess@ suivant à la racine du DocumentRoot de DAViCal (@/usr/share/davical/htdocs@ par défaut) :
+<pre>
+<code class="htaccess">
+RewriteEngine On
+
+#####
+# Redirection vers AgenDAV par défaut
+#####
+
+# Fix pour déterminer le scheme en Apache <2.4 (cf. http://howtosdeit.blogspot.fr/2012/10/requestscheme-in-apache-22.html)
+RewriteCond %{HTTPS} off
+RewriteRule .* - [E=MY_REQUEST_SCHEME:http]
+
+RewriteCond %{HTTPS} on
+RewriteRule .* - [E=MY_REQUEST_SCHEME:https]
+
+RewriteCond %{REQUEST_URI} ^/$
+RewriteRule ^(.*)$ %{ENV:MY_REQUEST_SCHEME}://{{AGENDAV_HOST}} [NC,R,L]
+## /Redirection vers AgenDAV par défaut
+
+
+#####
+# Redirection vers caldav.php
+#####
+
+RewriteCond %{REQUEST_URI} !^/agendav
+
+# Not if it's the root URL.  You might want to comment this out if you
+# want to use an explicit /index.php for getting to the admin pages.
+#RewriteCond %{REQUEST_URI} !^/$
+
+# Not if it explicitly specifies a .php program, stylesheet or image
+# NOTICE THIS IS VERY IMPORTANT IF YOU NEED ACCESS FROM IOS 5 DEVICES
+# since IOS 5 for some reasons insists on prefixing the URL with /caldav.php
+# an refuses to communicate with DAViCal if returned URL's does not contain
+# a URL prefixed with /caldav.php
+RewriteCond %{REQUEST_URI} !\.(php|css|js|png|gif|jpg)
+
+# Not if it's an existing file
+RewriteCond %{DOCUMENT_ROOT}%{REQUEST_FILENAME} !-d
+RewriteCond %{DOCUMENT_ROOT}%{REQUEST_FILENAME} !-f
+
+# Everything else gets rewritten to /caldav.php/...
+RewriteRule ^(.*)$ /caldav.php/$1 [NC,L]
+
+## /Redirection vers caldav.php
+</code>
+</pre>
+
+Vu qu'on active/configure le module Rewrite dans un fichier @.htaccess@, penser à autoriser l'option @FileInfo@ pour le dossier le contenant dans le @VirtualHost@ de DAViCal. Exemple :
+<pre>
+<VirtualHost *:80>
+    ServerName {{CALDAV_HOST}}
+    [...]
+    <Directory /usr/share/davical/htdocs/>
+        AllowOverride FileInfo
+        Order allow,deny
+        Allow from all
+    </Directory>
+</VirtualHost>
+</pre>
