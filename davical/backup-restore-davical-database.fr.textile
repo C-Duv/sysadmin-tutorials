@@ -1,0 +1,30 @@
+h1. Sauvegarde/restauration base de données
+
+Notes :
+
+* Le compte utilisateur PostgreSQL utilisé par DAViCal est @davical_dba@.
+* La base de données PostgreSQL utilisé par DAViCal est @davical@.
+
+h2. Sauvegarde/restauration base de données
+
+* Dump de la base
+<pre>
+postgres@server:~$ pg_dump davical > davical-AAAAMMDD-HHMMSS.dump
+</pre>
+
+* Restauration de la base
+Si la base de données existe déjà, la supprimer :
+<pre>
+postgres@server:~$ psql
+postgres=# DROP DATABASE davical;
+DROP DATABASE
+postgres=# \q
+</pre>
+Ensuite créer la base et importer le fichier dump
+<pre>	
+postgres@server:~$ psql
+postgres=# CREATE DATABASE davical owner davical_dba TEMPLATE template0 ENCODING 'UTF8';
+CREATE DATABASE
+postgres=# \q
+postgres@server:~$ psql davical < davical-AAAAMMDD-HHMMSS.dump
+</pre>
